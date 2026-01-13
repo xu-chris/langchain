@@ -1072,10 +1072,10 @@ defmodule LangChain.Chains.LLMChain do
         process_message(%LLMChain{chain | delta: nil}, message)
 
       {:error, reason} ->
-        # should not have failed, but it did. Log the error and return
-        # the chain unmodified.
+        # Delta conversion failed. Log the error and clear the delta to prevent
+        # it from interfering with subsequent API calls.
         Logger.warning("Error applying delta message. Reason: #{inspect(reason)}")
-        chain
+        %LLMChain{chain | delta: nil}
     end
   end
 
