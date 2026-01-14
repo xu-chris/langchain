@@ -376,7 +376,7 @@ defmodule LangChain.Function do
   end
 
   defp normalize_execution_result(other, function) do
-    Logger.error(
+    Logger.warning(
       "Function #{function.name} unexpectedly returned #{inspect(other)}. Expect a string. Unable to present as response to LLM."
     )
 

@@ -1194,7 +1194,7 @@ defmodule LangChain.Chains.LLMChain do
          %Message{role: :assistant, tool_calls: tool_calls, content: content}
        )
        when (tool_calls == [] or tool_calls == nil) and map_size(tool_map) > 0 do
-    content_string = ContentPart.parts_to_string(content)
+    content_string = ContentPart.content_to_string(content)
 
     case find_tool_name_at_start(content_string, Map.keys(tool_map)) do
       nil -> :ok
@@ -1204,7 +1204,10 @@ defmodule LangChain.Chains.LLMChain do
 
   defp detect_malformed_tool_call(_chain, _message), do: :ok
 
-  # Check if the content starts with any of the given tool names
+  # Check if the content starts with any of the given tool names.
+  # Since we only check against registered tool names (not generic patterns),
+  # false positives are unlikely - tool names like "get_festival" or "search_web"
+  # rarely appear at the start of legitimate assistant responses.
   @spec find_tool_name_at_start(String.t() | nil, [String.t()]) :: String.t() | nil
   defp find_tool_name_at_start(nil, _tool_names), do: nil
   defp find_tool_name_at_start("", _tool_names), do: nil

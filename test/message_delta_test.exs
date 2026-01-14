@@ -1413,38 +1413,6 @@ defmodule LangChain.MessageDeltaTest do
       assert reason == "tool_calls: arguments: invalid json"
     end
 
-    test "detects malformed tool call in content when tool_calls is empty" do
-      # Simulates Mistral streaming bug where tool call data appears in content
-      # instead of tool_calls array. This happens with parallel_tool_calls enabled.
-      delta = %LangChain.MessageDelta{
-        role: :assistant,
-        merged_content: [
-          ContentPart.text!("get_festival{\"id\": \"abc-123\", \"name\": \"Test Festival\"}")
-        ],
-        tool_calls: [],
-        status: :complete
-      }
-
-      {:error, reason} = MessageDelta.to_message(delta)
-      assert reason =~ "Malformed tool call"
-    end
-
-    test "detects malformed tool call spread across multiple content parts" do
-      # Tool call data split across multiple content parts from streaming
-      delta = %LangChain.MessageDelta{
-        role: :assistant,
-        merged_content: [
-          ContentPart.text!("get"),
-          ContentPart.text!("_festivaluserdata{\"id\": \"123\"}")
-        ],
-        tool_calls: [],
-        status: :complete
-      }
-
-      {:error, reason} = MessageDelta.to_message(delta)
-      assert reason =~ "Malformed tool call"
-    end
-
     test "allows normal content that starts with lowercase words" do
       # Normal content should not be flagged as malformed tool call
       delta = %LangChain.MessageDelta{

@@ -432,7 +432,6 @@ defmodule LangChain.MessageDelta do
       |> Map.put(:content, content)
 
     with :ok <- validate_not_empty(delta),
-         :ok <- validate_tool_call_content(delta),
          {:ok, message} <- Message.new(attrs) do
       {:ok, message}
     else
@@ -461,51 +460,10 @@ defmodule LangChain.MessageDelta do
 
   defp validate_not_empty(_delta), do: :ok
 
-  # Validate that content doesn't contain malformed tool call data when tool_calls is empty.
-  # This catches a streaming bug in some LLMs (e.g., Mistral with parallel_tool_calls)
-  # where tool call data appears in the content field instead of the tool_calls array.
-  defp validate_tool_call_content(%MessageDelta{
-         tool_calls: tool_calls,
-         merged_content: merged_content,
-         status: :complete
-       })
-       when (tool_calls == [] or tool_calls == nil) and is_list(merged_content) and
-              merged_content != [] do
-    content_string = merged_content |> reject_nil() |> ContentPart.parts_to_string()
-
-    if looks_like_malformed_tool_call?(content_string) do
-      Logger.warning("""
-      MessageDelta has content that looks like a malformed tool call.
-      Content: #{String.slice(content_string || "", 0, 200)}
-      This typically indicates the LLM returned tool call data in the content field instead of tool_calls.
-      """)
-
-      {:error,
-       "Malformed tool call detected: tool call data appears in content field instead of tool_calls array"}
-    else
-      :ok
-    end
-  end
-
-  defp validate_tool_call_content(_delta), do: :ok
-
   # Filter nil values from list (from index padding during delta merging)
   @spec reject_nil(list() | any()) :: list() | any()
   defp reject_nil(list) when is_list(list), do: Enum.reject(list, &is_nil/1)
   defp reject_nil(other), do: other
-
-  # Check if content looks like a malformed tool call.
-  # Pattern: function_name immediately followed by JSON object.
-  defp looks_like_malformed_tool_call?(nil), do: false
-
-  defp looks_like_malformed_tool_call?(content) when is_binary(content) do
-    # Remove whitespace/newlines to handle content split across parts
-    normalized = String.replace(content, ~r/\s+/, "")
-
-    # Pattern: snake_case function name immediately followed by opening brace
-    # Must have at least one underscore to distinguish from regular words
-    String.match?(normalized, ~r/^[a-z]+_[a-z_]*\{/)
-  end
 
   @doc """
   Accumulates token usage from delta messages. Uses `LangChain.TokenUsage.add/2` to combine
