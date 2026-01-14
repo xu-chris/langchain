@@ -699,6 +699,119 @@ defmodule LangChain.Chains.LLMChainTest do
       assert updated_chain.messages == [last]
       assert %TokenUsage{input: 15, output: 4, raw: %{}} = last.metadata.usage
     end
+
+    test "clears delta when conversion to message fails (empty assistant message)" do
+      # This test verifies that when delta-to-message conversion fails,
+      # the delta is cleared from the chain to prevent it from interfering
+      # with subsequent API calls.
+      #
+      # This can happen with Mistral when the model returns empty streaming
+      # responses (no content, no tool_calls), which violates conversation
+      # flow rules.
+
+      # Create deltas that result in an empty assistant message
+      # (no content, no tool_calls) - this will fail to convert to a message
+      empty_deltas = [
+        [
+          %LangChain.MessageDelta{
+            content: nil,
+            status: :incomplete,
+            index: 0,
+            role: :assistant,
+            tool_calls: nil
+          }
+        ],
+        [
+          %LangChain.MessageDelta{
+            content: nil,
+            status: :complete,
+            index: 0,
+            role: :unknown,
+            tool_calls: nil
+          }
+        ]
+      ]
+
+      chain = LLMChain.new!(%{llm: ChatOpenAI.new!()})
+
+      # Apply the empty deltas - this should fail to convert but clear the delta
+      updated_chain = LLMChain.apply_deltas(chain, empty_deltas)
+
+      # The delta should be cleared (nil) even though conversion failed
+      assert updated_chain.delta == nil
+
+      # No message should have been added since conversion failed
+      assert updated_chain.messages == []
+      assert updated_chain.last_message == nil
+    end
+
+    test "failed delta does not interfere with subsequent delta processing" do
+      # This test verifies that after a failed delta conversion,
+      # subsequent deltas can be processed correctly without interference
+      # from the previous failed delta.
+
+      chain = LLMChain.new!(%{llm: ChatOpenAI.new!()})
+
+      # First, apply empty deltas that will fail to convert
+      empty_deltas = [
+        [
+          %LangChain.MessageDelta{
+            content: nil,
+            status: :incomplete,
+            index: 0,
+            role: :assistant,
+            tool_calls: nil
+          }
+        ],
+        [
+          %LangChain.MessageDelta{
+            content: nil,
+            status: :complete,
+            index: 0,
+            role: :unknown,
+            tool_calls: nil
+          }
+        ]
+      ]
+
+      chain_after_failure = LLMChain.apply_deltas(chain, empty_deltas)
+      assert chain_after_failure.delta == nil
+
+      # Now apply valid deltas - they should work correctly
+      valid_deltas = [
+        [
+          %LangChain.MessageDelta{
+            content: "Hello",
+            status: :incomplete,
+            index: 0,
+            role: :assistant,
+            tool_calls: nil
+          }
+        ],
+        [
+          %LangChain.MessageDelta{
+            content: " world!",
+            status: :complete,
+            index: 0,
+            role: :unknown,
+            tool_calls: nil
+          }
+        ]
+      ]
+
+      final_chain = LLMChain.apply_deltas(chain_after_failure, valid_deltas)
+
+      # The valid deltas should have been processed correctly
+      assert final_chain.delta == nil
+      assert final_chain.last_message != nil
+      assert final_chain.last_message.role == :assistant
+
+      # Content should be the merged result
+      content_text =
+        LangChain.Message.ContentPart.parts_to_string(final_chain.last_message.content)
+
+      assert content_text == "Hello world!"
+    end
   end
 
   describe "add_message/2" do
