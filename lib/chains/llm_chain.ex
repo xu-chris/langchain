@@ -1133,6 +1133,31 @@ defmodule LangChain.Chains.LLMChain do
   """
   @spec process_message(t(), Message.t()) :: t()
   def process_message(%LLMChain{} = chain, %Message{} = message) do
+    # Check for malformed tool calls before processing
+    case detect_malformed_tool_call(chain, message) do
+      {:error, tool_name} ->
+        Logger.warning(
+          "Detected malformed tool call in content. Tool '#{tool_name}' data appeared in message content instead of tool_calls."
+        )
+
+        error_message =
+          Message.new_user!(
+            "ERROR: Your tool call for '#{tool_name}' was malformed. The tool call data appeared in the message content instead of being properly structured. Please retry the tool call with the correct format."
+          )
+
+        chain
+        |> increment_current_failure_count()
+        |> add_message(message)
+        |> add_message(error_message)
+        |> fire_callback_and_return(:on_message_processing_error, [message])
+        |> fire_callback_and_return(:on_error_message_created, [error_message])
+
+      :ok ->
+        process_message_after_validation(chain, message)
+    end
+  end
+
+  defp process_message_after_validation(%LLMChain{} = chain, %Message{} = message) do
     case run_message_processors(chain, message) do
       {:halted, failed_message, new_message} ->
         if chain.verbose do
@@ -1158,6 +1183,36 @@ defmodule LangChain.Chains.LLMChain do
         |> fire_callback_and_return(:on_message_processed, [updated_message])
         |> fire_usage_callback_and_return(:on_llm_token_usage, [updated_message])
     end
+  end
+
+  # Detect if an assistant message contains a malformed tool call by checking
+  # if the content starts with a registered tool name. This catches cases where
+  # LLM streaming corrupts tool calls, placing them in content instead of tool_calls.
+  @spec detect_malformed_tool_call(t(), Message.t()) :: :ok | {:error, String.t()}
+  defp detect_malformed_tool_call(
+         %LLMChain{_tool_map: tool_map},
+         %Message{role: :assistant, tool_calls: tool_calls, content: content}
+       )
+       when (tool_calls == [] or tool_calls == nil) and map_size(tool_map) > 0 do
+    content_string = ContentPart.parts_to_string(content)
+
+    case find_tool_name_at_start(content_string, Map.keys(tool_map)) do
+      nil -> :ok
+      tool_name -> {:error, tool_name}
+    end
+  end
+
+  defp detect_malformed_tool_call(_chain, _message), do: :ok
+
+  # Check if the content starts with any of the given tool names
+  @spec find_tool_name_at_start(String.t() | nil, [String.t()]) :: String.t() | nil
+  defp find_tool_name_at_start(nil, _tool_names), do: nil
+  defp find_tool_name_at_start("", _tool_names), do: nil
+
+  defp find_tool_name_at_start(content, tool_names) do
+    Enum.find(tool_names, fn name ->
+      String.starts_with?(content, name)
+    end)
   end
 
   @doc """
