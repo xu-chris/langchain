@@ -1292,6 +1292,19 @@ defmodule LangChain.ChatModels.ChatOpenAIResponses do
     build_failed_response_error(response)
   end
 
+  def do_process_response(_model, {:error, %Jason.DecodeError{} = response}) do
+    error_message = "Received invalid JSON: #{inspect(response)}"
+    Logger.error(error_message)
+
+    {:error,
+     LangChainError.exception(type: "invalid_json", message: error_message, original: response)}
+  end
+
+  def do_process_response(_model, other) do
+    Logger.error("Trying to process an unexpected response. #{inspect(other)}")
+    {:error, LangChainError.exception(message: "Unexpected response")}
+  end
+
   # Extracts error details from a failed OpenAI response and builds an error tuple.
   # Handles various error formats defensively:
   # - %{"error" => %{"code" => "...", "message" => "..."}}
@@ -1325,19 +1338,6 @@ defmodule LangChain.ChatModels.ChatOpenAIResponses do
       _ ->
         {"api_error", "Request failed"}
     end
-  end
-
-  def do_process_response(_model, {:error, %Jason.DecodeError{} = response}) do
-    error_message = "Received invalid JSON: #{inspect(response)}"
-    Logger.error(error_message)
-
-    {:error,
-     LangChainError.exception(type: "invalid_json", message: error_message, original: response)}
-  end
-
-  def do_process_response(_model, other) do
-    Logger.error("Trying to process an unexpected response. #{inspect(other)}")
-    {:error, LangChainError.exception(message: "Unexpected response")}
   end
 
   defp get_token_usage(%{"usage" => usage} = _response_body) when is_map(usage) do
